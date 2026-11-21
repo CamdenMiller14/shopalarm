@@ -14,9 +14,9 @@
 <link rel="icon" type="image/png" href="icon-192.png">
 <title>Shop Alarm</title>
 <!--
-  Hume Shop Alarm - remote app (v2.1)
+  Hume Shop Alarm - remote app (v2.1.1)
   One page, no outside files or libraries. It talks to the alarm through your
-  MQTT broker (HiveMQ Cloud) over an encrypted WebSocket, so it works on
+  MQTT broker (EMQX Serverless) over an encrypted WebSocket, so it works on
   cellular data. It holds no passwords itself: your phone receives them once,
   when you pair it from the alarm's home dashboard, and keeps them on the phone.
 -->
@@ -203,7 +203,7 @@ dl.kv dt{color:var(--dim)}dl.kv dd{margin:0;overflow-wrap:anywhere}
    <button class="ghost danger" id="unpair">Unpair this phone</button>
    <button class="primary" id="closeset">Done</button>
   </div>
-  <p class="note">If your phone is lost, change the broker password in HiveMQ: this phone then stops working.</p>
+  <p class="note">If your phone is lost, change its broker password in the EMQX console: this phone then stops working.</p>
  </div>
 </div>
 
@@ -211,7 +211,7 @@ dl.kv dt{color:var(--dim)}dl.kv dd{margin:0;overflow-wrap:anywhere}
 
 <script>
 {
-const APP_VERSION='2.1.0';
+const APP_VERSION='2.1.1';
 const KEEPALIVE=30;                       // seconds
 const NAMES=['DISARMED','ARMING','ARMED','ENTRY DELAY','ALARM','STANDBY'];
 const SRC=['at the panel','from a phone','automatically'];
