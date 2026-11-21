@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#04123f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Shop Alarm">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>Shop Alarm</title>
+<!--
+  Hume Shop Alarm - remote app (v2.1)
+  One page, no outside files or libraries. It talks to the alarm through your
+  MQTT broker (HiveMQ Cloud) over an encrypted WebSocket, so it works on
+  cellular data. It holds no passwords itself: your phone receives them once,
+  when you pair it from the alarm's home dashboard, and keeps them on the phone.
+-->
+<style>
+/*
+ VOICE   calm, exact, like the panel on the wall; loud only when it must be
+ IDEA    the alarm's own screen, carried in your pocket
+ PICTURE the state card, then the sensor's range rings with the person's distance lit
+ COLOUR  panel navy, cyan accent, state colours: amber counting down, red alarm
+ TYPE    system UI, tabular figures for times and distances
+*/
+:root{--bg:#04123f;--bg2:#061a55;--card:#0a2170;--line:#1f3d9e;--text:#fff;--dim:#a3b6e6;--accent:#5adcff;--ok:#3ce65a;--warn:#ffbe28;--bad:#ff4a3c;--ink:#00143c;
+ --safe-t:env(safe-area-inset-top,0px);--safe-b:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box;min-width:0}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-x:clip}
+.num{font-variant-numeric:tabular-nums}
+main{max-width:560px;margin:0 auto;padding:calc(10px + var(--safe-t)) 14px calc(36px + var(--safe-b))}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 2px 12px}
+h1{font-size:19px;margin:0;font-weight:700}
+.pill{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--dim);background:var(--bg2);border:1px solid var(--line);border-radius:20px;padding:5px 11px;white-space:nowrap}
+.dot{width:9px;height:9px;border-radius:50%;background:#6e788c;display:inline-block;flex:none}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+.dot.ok.live{box-shadow:0 0 0 0 rgba(60,230,90,.6);animation:beat 2s infinite}
+@keyframes beat{70%{box-shadow:0 0 0 7px rgba(60,230,90,0)}100%{box-shadow:0 0 0 0 rgba(60,230,90,0)}}
+
+.hero{position:relative;border-radius:18px;padding:22px 18px 20px;margin-bottom:12px;background:var(--card);border:1px solid var(--line);display:grid;grid-template-columns:84px 1fr;gap:16px;align-items:center;overflow:hidden;transition:background .25s,border-color .25s}
+.hero .glyph{width:84px;height:84px}
+.hero .hname{font-size:30px;font-weight:800;letter-spacing:.5px;line-height:1.05}
+.hero .hsub{color:var(--dim);margin-top:6px;font-size:15px}
+.hero .hmeta{color:var(--dim);margin-top:4px;font-size:13px}
+.hero.s0{border-color:#24508c}
+.hero.s1,.hero.s3{background:#5c4300;border-color:var(--warn)}
+.hero.s2{background:#06205f;border-color:var(--accent)}
+.hero.s4{background:#a80000;border-color:#fff;animation:pulse .9s infinite}
+.hero.s5{background:#5a0a0a;border-color:var(--bad)}
+.hero.off{background:#1a2133;border-color:#3a455f}
+.hero.s1 .hsub,.hero.s3 .hsub,.hero.s4 .hsub,.hero.s5 .hsub,.hero.s1 .hmeta,.hero.s3 .hmeta,.hero.s4 .hmeta,.hero.s5 .hmeta{color:#ffe3dc}
+@keyframes pulse{50%{background:#e01010}}
+
+.actions{display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:12px}
+button{font:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.primary{font-weight:800;font-size:19px;min-height:58px;border-radius:14px;border:0;color:var(--ink);background:var(--accent)}
+.primary.disarm{background:#fff}
+.primary:disabled{opacity:.4}
+.primary .spin{display:inline-block;width:16px;height:16px;border:3px solid currentColor;border-right-color:transparent;border-radius:50%;animation:rot .8s linear infinite;vertical-align:-2px;margin-right:8px}
+@keyframes rot{to{transform:rotate(360deg)}}
+.ghost{font-size:15px;min-height:44px;padding:10px 14px;border-radius:12px;background:transparent;color:var(--accent);border:1px solid var(--line)}
+button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
+h2{font-size:15px;margin:0 0 10px;font-weight:700;color:var(--dim)}
+.prow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.big{font-size:24px;font-weight:700}
+.fan{display:block;width:100%;height:auto;margin:6px 0 2px}
+.note{font-size:13px;color:var(--dim)}
+
+ol.list{list-style:none;margin:0;padding:0}
+ol.list li{display:grid;grid-template-columns:14px 1fr auto;gap:10px;padding:10px 0;border-top:1px solid var(--line);align-items:start}
+ol.list li:first-child{border-top:0}
+ol.list .dot{margin-top:6px}
+ol.list b{font-weight:650}
+ol.list .d{color:var(--dim);font-size:13px}
+ol.list .w{color:var(--dim);font-size:13px;text-align:right;white-space:nowrap}
+.empty{color:var(--dim);font-size:14px;padding:6px 0}
+.more{margin-top:8px;width:100%}
+
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 14px;font-size:14px;margin-bottom:12px}
+.grid div{display:flex;align-items:center;gap:8px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+.banner{background:#123a8a;border:1px solid var(--accent);border-radius:14px;padding:12px 14px;margin-bottom:12px;font-size:14px;display:flex;gap:10px;align-items:flex-start}
+.banner button{margin-left:auto;background:none;border:0;color:var(--dim);font-size:20px;line-height:1;padding:0 4px;min-width:32px;min-height:32px}
+
+/* sheets: PIN pad, settings */
+.veil{position:fixed;inset:0;background:rgba(0,6,24,.72);display:flex;align-items:flex-end;justify-content:center;z-index:10}
+.veil[hidden]{display:none}
+.sheet{width:100%;max-width:460px;background:var(--bg2);border:1px solid var(--line);border-bottom:0;border-radius:20px 20px 0 0;padding:18px 18px calc(18px + var(--safe-b));max-height:92vh;overflow:auto}
+.sheet h3{margin:0 0 4px;font-size:19px}
+.pins{display:flex;justify-content:center;gap:12px;margin:18px 0 16px;min-height:16px}
+.pins i{width:14px;height:14px;border-radius:50%;border:2px solid var(--dim)}
+.pins i.f{background:#fff;border-color:#fff}
+.pins.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pad button{min-height:58px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:#fff;font-size:24px;font-weight:600}
+.pad button.k{font-size:22px;color:var(--dim)}
+.pad button.go{background:var(--accent);color:var(--ink);border:0;font-size:17px;font-weight:800}
+label.chk{display:flex;align-items:center;gap:10px;margin:14px 2px 4px;font-size:15px;color:var(--dim);min-height:44px}
+label.chk input{width:22px;height:22px;accent-color:var(--accent)}
+textarea,input[type=text]{width:100%;font:15px/1.4 ui-monospace,Menlo,monospace;background:#03103a;color:#fff;border:1px solid var(--line);border-radius:10px;padding:10px}
+dl.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px;margin:12px 0}
+dl.kv dt{color:var(--dim)}dl.kv dd{margin:0;overflow-wrap:anywhere}
+.stack{display:grid;gap:10px;margin-top:14px}
+.danger{color:#ff8a80;border-color:#7a2a35}
+
+/* pairing screen */
+.pair{max-width:520px;margin:0 auto;padding:calc(28px + var(--safe-t)) 18px calc(30px + var(--safe-b))}
+.pair h1{font-size:26px;margin-bottom:6px}
+.pair ol{padding-left:20px;color:var(--dim)}
+.pair ol li{margin:8px 0}
+.pair b{color:#fff}
+#toast{position:fixed;left:50%;bottom:calc(22px + var(--safe-b));transform:translateX(-50%);background:#fff;color:var(--ink);padding:11px 16px;border-radius:12px;font-weight:650;max-width:92%;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+#toast[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){.hero.s4{animation:none}.dot.ok.live{animation:none}.primary .spin{animation-duration:2s}}
+@media (max-width:360px){.hero{grid-template-columns:64px 1fr}.hero .glyph{width:64px;height:64px}.hero .hname{font-size:25px}}
+</style>
+</head>
+<body>
+
+<!-- ======================= not paired yet ======================= -->
+<section class="pair" id="pairview" hidden>
+ <h1>Pair this phone</h1>
+ <p class="note">The app needs your alarm's relay login once. It is stored only on this phone.</p>
+ <ol>
+  <li>Be on the <b>shop's Wi-Fi</b> and open the alarm's dashboard (<b>http://shopalarm.local</b> or its IP address).</li>
+  <li>Tap <b>Set up this phone for remote access</b> and enter your PIN. This page opens again, paired.</li>
+  <li>Then tap Share, then <b>Add to Home Screen</b>, so it opens like an app.</li>
+ </ol>
+ <p class="note">Or paste the pairing code shown on the dashboard:</p>
+ <textarea id="pastecode" rows="4" placeholder="Pairing code" aria-label="Pairing code"></textarea>
+ <div class="stack"><button class="primary" id="pastego">Pair</button></div>
+ <p class="note" id="pairerr" role="alert"></p>
+</section>
+
+<!-- ======================= the app ======================= -->
+<main id="app" hidden>
+ <header><h1 id="name">Shop Alarm</h1><span class="pill" id="pill"><span class="dot" id="pdot"></span><span id="ptxt">Connecting</span></span></header>
+
+ <div class="banner" id="a2hs" hidden><span>To open this like an app: tap <b>Share</b> then <b>Add to Home Screen</b>.</span><button id="a2hsx" aria-label="Dismiss">×</button></div>
+
+ <section class="hero off" id="hero" aria-live="polite">
+  <svg class="glyph" id="glyph" viewBox="0 0 84 84" aria-hidden="true"></svg>
+  <div><div class="hname" id="hname">Connecting</div><div class="hsub" id="hsub">Reaching the alarm…</div><div class="hmeta num" id="hmeta"></div></div>
+ </section>
+
+ <div class="actions"><button class="primary" id="act" disabled>Arm</button></div>
+
+ <section class="card">
+  <div class="prow"><h2>Presence</h2><span class="note num" id="visit"></span></div>
+  <div class="big num" id="pres">–</div>
+  <svg class="fan" id="fan" viewBox="0 0 320 190" role="img" aria-label="Distance from the sensor"></svg>
+  <div class="note">The sensor measures distance, not direction: the lit ring shows how far away someone is.</div>
+ </section>
+
+ <section class="card">
+  <h2>Activity</h2>
+  <ol class="list" id="acts"><li class="empty">Waiting for the alarm…</li></ol>
+  <button class="ghost more" id="actmore" hidden>Show all</button>
+ </section>
+
+ <section class="card">
+  <h2>Detection log</h2>
+  <ol class="list" id="log"><li class="empty">Waiting for the alarm…</li></ol>
+  <button class="ghost more" id="logmore" hidden>Show all</button>
+ </section>
+
+ <section class="card">
+  <h2>System</h2>
+  <div class="grid" id="health"></div>
+  <div class="row2"><button class="ghost" id="test">Send test alert</button><button class="ghost" id="opensettings">Settings</button></div>
+ </section>
+</main>
+
+<!-- ======================= PIN pad ======================= -->
+<div class="veil" id="pinveil" hidden>
+ <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pintitle">
+  <h3 id="pintitle">Enter PIN</h3>
+  <div class="note" id="pinsub">The alarm checks it; it is never sent in readable form.</div>
+  <div class="pins" id="pins" aria-live="polite"></div>
+  <div class="pad" id="pad"></div>
+  <label class="chk"><input type="checkbox" id="remember" checked> Remember PIN on this phone</label>
+  <button class="ghost more" id="pincancel">Cancel</button>
+ </div>
+</div>
+
+<!-- ======================= settings ======================= -->
+<div class="veil" id="setveil" hidden>
+ <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settitle">
+  <h3 id="settitle">Settings</h3>
+  <dl class="kv" id="kv"></dl>
+  <div class="stack">
+   <button class="ghost" id="forgetpin">Forget saved PIN</button>
+   <button class="ghost danger" id="unpair">Unpair this phone</button>
+   <button class="primary" id="closeset">Done</button>
+  </div>
+  <p class="note">If your phone is lost, change the broker password in HiveMQ: this phone then stops working.</p>
+ </div>
+</div>
+
+<div id="toast" role="status" hidden></div>
+
+<script>
+{
+const APP_VERSION='2.1.0';
+const KEEPALIVE=30;                       // seconds
+const NAMES=['DISARMED','ARMING','ARMED','ENTRY DELAY','ALARM','STANDBY'];
+const SRC=['at the panel','from a phone','automatically'];
+const OUT=['still present','left on their own','disarmed at the panel','disarmed from a phone','power was lost'];
+const $=id=>document.getElementById(id);
+const te=new TextEncoder(),td=new TextDecoder();
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+
+// ---------------------------------------------------------------- formatting
+// Alarm times are its own local wall-clock seconds since 2000-01-01.
+const E2K=946684800;
+function wall(e){return new Date((e+E2K)*1000)}
+function t12(e,sec){const d=wall(e);let h=d.getUTCHours();const m=d.getUTCMinutes(),s=d.getUTCSeconds(),ap=h<12?'AM':'PM';h=h%12||12;return h+':'+String(m).padStart(2,'0')+(sec?':'+String(s).padStart(2,'0'):'')+' '+ap}
+function sameDay(a,b){return a.getUTCFullYear()==b.getUTCFullYear()&&a.getUTCMonth()==b.getUTCMonth()&&a.getUTCDate()==b.getUTCDate()}
+function when(e){
+ if(!e)return'time unknown';
+ const d=wall(e),now=new Date(Date.now()-new Date().getTimezoneOffset()*60000),y=new Date(now-864e5);
+ const day=sameDay(d,now)?'Today':sameDay(d,y)?'Yesterday':['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()]+' '+(d.getUTCMonth()+1)+'/'+d.getUTCDate();
+ return day+', '+t12(e,false);
+}
+function clockOf(unix){const d=new Date(unix*1000);let h=d.getHours();const ap=h<12?'AM':'PM';h=h%12||12;return h+':'+String(d.getMinutes()).padStart(2,'0')+' '+ap}
+function dur(s){s=Math.max(0,Math.round(s));if(s<60)return s+' s';if(s<3600)return Math.floor(s/60)+' min '+(s%60)+' s';if(s<86400)return Math.floor(s/3600)+' h '+Math.floor(s%3600/60)+' min';return Math.floor(s/86400)+' d '+Math.floor(s%86400/3600)+' h'}
+function mm(s){s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
+function m(cm){return cm>0?(cm/100).toFixed(1)+' m':'–'}
+function dm(v){return v==255?'–':(v/10).toFixed(1)+' m'}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+let toastTimer;
+function toast(t){const e=$('toast');e.textContent=t;e.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.hidden=true,4200)}
+
+// ---------------------------------------------------------------- pairing
+function b64urlDecode(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';const bin=atob(s);const b=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)b[i]=bin.charCodeAt(i);return td.decode(b)}
+function parsePair(code){
+ const j=JSON.parse(b64urlDecode(code.trim()));
+ const okUrl=/^wss:\/\//.test(j.url)||/^ws:\/\/(localhost|127\.0\.0\.1)[:/]/.test(j.url);
+ if(j.v!==1||!okUrl||!j.user||!j.pass||!j.base||!j.key)throw new Error('incomplete');
+ return j;
+}
+function loadPair(){try{return JSON.parse(store.get('hsa.pair')||'null')}catch(e){return null}}
+function savePair(p){store.set('hsa.pair',JSON.stringify(p))}
+// A link from the dashboard carries the pairing after "#pair=". It stays in the
+// address so that "Add to Home Screen" keeps it too (an iPhone home-screen app
+// does not share Safari's storage). It never reaches GitHub: browsers do not
+// send the part after "#" to the server.
+function pairFromHash(){
+ const h=location.hash;
+ if(!h.startsWith('#pair='))return null;
+ try{const p=parsePair(decodeURIComponent(h.slice(6)));savePair(p);return p}catch(e){$('pairerr').textContent='That pairing link is damaged. Open it again from the dashboard.';return null}
+}
+
+// ---------------------------------------------------------------- MQTT over WebSocket (3.1.1)
+function u16(n){return[n>>8&255,n&255]}
+function str(s){const b=te.encode(s);return[...u16(b.length),...b]}
+function remLen(n){const o=[];do{let d=n%128;n=Math.floor(n/128);if(n>0)d|=128;o.push(d)}while(n>0);return o}
+function packet(h,body){const r=remLen(body.length),p=new Uint8Array(1+r.length+body.length);p[0]=h;p.set(r,1);p.set(body,1+r.length);return p}
+class Mqtt{
+ constructor(o){this.o=o;this.ws=null;this.buf=new Uint8Array(0);this.nextId=1;this.inflight=new Map();this.state='idle';this.retry=0;this.lastRx=0;this.timer=0;this.pinger=0}
+ start(){this.stopped=false;this.open()}
+ stop(){this.stopped=true;clearTimeout(this.timer);clearInterval(this.pinger);this.drop()}
+ drop(){const w=this.ws;this.ws=null;if(w){w.onclose=w.onmessage=w.onopen=w.onerror=null;try{w.close()}catch(e){}}}
+ set(s){this.state=s;this.o.onState(s)}
+ open(){
+  clearTimeout(this.timer);clearInterval(this.pinger);this.drop();
+  if(this.state!=='auth')this.set('connecting');
+  let ws;try{ws=new WebSocket(this.o.url,['mqtt'])}catch(e){return this.later()}
+  ws.binaryType='arraybuffer';this.ws=ws;this.buf=new Uint8Array(0);
+  ws.onopen=()=>this.send(this.connectPkt());
+  ws.onmessage=ev=>{this.lastRx=Date.now();this.feed(new Uint8Array(ev.data))};
+  ws.onclose=()=>{if(this.ws!==ws)return;this.ws=null;clearInterval(this.pinger);if(this.state!=='auth')this.set('down');this.later()};
+  ws.onerror=()=>{};
+ }
+ later(){if(this.stopped)return;const d=this.state==='auth'?60000:Math.min(20000,1000*2**Math.min(this.retry++,4));this.timer=setTimeout(()=>this.open(),d)}
+ send(p){if(this.ws&&this.ws.readyState===1){this.ws.send(p);return true}return false}
+ connectPkt(){
+  const o=this.o,flags=0x02|(o.user?0x80:0)|(o.pass?0x40:0);
+  const body=[0,4,77,81,84,84,4,flags,...u16(KEEPALIVE),...str(o.clientId),...(o.user?str(o.user):[]),...(o.pass?str(o.pass):[])];
+  return packet(0x10,body);
+ }
+ id(){const i=this.nextId;this.nextId=this.nextId%65535+1;return i}
+ feed(chunk){
+  const b=new Uint8Array(this.buf.length+chunk.length);b.set(this.buf);b.set(chunk,this.buf.length);
+  let i=0;
+  for(;;){
+   if(b.length-i<2)break;
+   let len=0,mul=1,j=i+1,byte=0,ok=true;
+   do{if(j>=b.length){ok=false;break}byte=b[j++];len+=(byte&127)*mul;mul*=128}while(byte&128);
+   if(!ok||b.length-j<len)break;
+   this.handle(b[i],b.subarray(j,j+len));
+   i=j+len;
+  }
+  this.buf=b.slice(i);
+ }
+ handle(h,body){
+  const t=h>>4;
+  if(t===2){                                    // CONNACK
+   const rc=body[1];
+   if(rc===0){this.retry=0;this.set('up');this.subscribe(this.o.topics);
+    for(const[pid,m]of this.inflight)this.send(this.pubPkt(m.topic,m.payload,pid,true));
+    this.pinger=setInterval(()=>this.tick(),KEEPALIVE*400)}
+   else{this.set(rc===4||rc===5?'auth':'refused');this.drop();this.later()}
+  }else if(t===3){                              // PUBLISH
+   const qos=h>>1&3,tl=body[0]<<8|body[1],topic=td.decode(body.subarray(2,2+tl));let p=2+tl;
+   if(qos>0){this.send(new Uint8Array([0x40,2,body[p],body[p+1]]));p+=2}
+   this.o.onMessage(topic,td.decode(body.subarray(p)));
+  }else if(t===4){this.inflight.delete(body[0]<<8|body[1])}   // PUBACK
+  else if(t===9){if([...body.subarray(2)].some(c=>c===0x80))this.o.onState('denied')}  // SUBACK
+ }
+ tick(){
+  if(Date.now()-this.lastRx>KEEPALIVE*1500){this.open();return}       // silent socket (phone woke from sleep)
+  this.send(new Uint8Array([0xC0,0]));
+ }
+ subscribe(topics){const id=this.id();const body=[...u16(id)];for(const t of topics)body.push(...str(t),1);this.send(packet(0x82,body))}
+ pubPkt(topic,payload,pid,dup){return packet(dup?0x3A:0x32,[...str(topic),...u16(pid),...te.encode(payload)])}
+ publish(topic,payload){const pid=this.id();this.inflight.set(pid,{topic,payload});this.send(this.pubPkt(topic,payload,pid,false));return pid}
+ healthy(){return this.state==='up'&&Date.now()-this.lastRx<KEEPALIVE*1500}
+}
+
+// ---------------------------------------------------------------- signed commands
+async function hmacHex(key,msg){
+ const k=await crypto.subtle.importKey('raw',te.encode(key),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+ const s=new Uint8Array(await crypto.subtle.sign('HMAC',k,te.encode(msg)));
+ return[...s].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function nonce(){const b=new Uint8Array(8);crypto.getRandomValues(b);return[...b].map(x=>x.toString(16).padStart(2,'0')).join('')}
+const waiting=new Map();
+async function signedCommand(c,pin){
+ const ts=Math.floor(Date.now()/1000),n=nonce(),base=c+'|'+ts+'|'+n;
+ const msg={c,ts,n,k:await hmacHex(P.key,base),mac:await hmacHex(P.key,base+'|'+pin),from:(navigator.platform||'phone').slice(0,20)};
+ return new Promise(res=>{
+  const timer=setTimeout(()=>{waiting.delete(n);res('timeout')},15000);
+  waiting.set(n,r=>{clearTimeout(timer);waiting.delete(n);res(r)});
+  mq.publish(P.base+'/cmd',JSON.stringify(msg));
+ });
+}
+const RESULT={
+ bad_pin:'Wrong PIN.',locked:'Too many wrong PINs. Remote commands are locked for a minute.',
+ bad_sig:'This phone\'s pairing is out of date. Pair it again from the dashboard.',
+ stale:'Your phone\'s clock is more than 5 minutes off. Check Date & Time settings.',
+ clock:'The alarm has not got network time yet. Try again in a minute.',
+ no_answer:'The alarm\'s controller did not answer. It may have lost power.',
+ disabled:'Remote disarm is switched off on the alarm.',nopush:'Notifications are not set up on the alarm.',
+ replay:'Already received.',timeout:'No answer from the alarm. It may be offline.',busy:'The alarm is busy. Try again.'
+};
+function resultText(c,r){
+ if(r==='done')return c==='arm'?'Exit delay started.':c==='test'?'Test alert sent. Check your notifications.':'Disarmed.';
+ if(r==='not_now')return c==='arm'?'Cannot arm right now: it is not disarmed.':'Already disarmed.';
+ return RESULT[r]||'Something went wrong ('+r+').';
+}
+
+// ---------------------------------------------------------------- PIN pad
+let pinResolve=null,pinBuf='';
+function drawPins(){$('pins').innerHTML=Array.from({length:Math.max(4,pinBuf.length)},(_,i)=>'<i class="'+(i<pinBuf.length?'f':'')+'"></i>').join('')}
+function askPin(title){
+ $('pintitle').textContent=title;pinBuf='';drawPins();$('pinveil').hidden=false;
+ return new Promise(r=>pinResolve=r);
+}
+function closePin(v){$('pinveil').hidden=true;const r=pinResolve;pinResolve=null;if(r)r(v)}
+$('pad').innerHTML=['1','2','3','4','5','6','7','8','9','Del','0','OK'].map(k=>'<button class="'+(k==='Del'?'k':k==='OK'?'go':'')+'" data-k="'+k+'"'+(k==='Del'?' aria-label="Delete digit"':'')+'>'+(k==='Del'?'⌫':k)+'</button>').join('');
+$('pincancel').onclick=()=>closePin(null);
+$('pad').addEventListener('click',e=>{
+ const k=e.target.dataset&&e.target.dataset.k;if(!k)return;
+ if(k==='Del'){pinBuf=pinBuf.slice(0,-1);drawPins();return}
+ if(k==='OK'){if(pinBuf.length)closePin(pinBuf);return}
+ if(pinBuf.length<12){pinBuf+=k;drawPins()}
+});
+document.addEventListener('keydown',e=>{
+ if($('pinveil').hidden)return;
+ if(/^[0-9]$/.test(e.key)&&pinBuf.length<12){pinBuf+=e.key;drawPins()}
+ else if(e.key==='Backspace'){pinBuf=pinBuf.slice(0,-1);drawPins()}
+ else if(e.key==='Enter'&&pinBuf.length)closePin(pinBuf);
+ else if(e.key==='Escape')closePin(null);
+});
+$('pinveil').addEventListener('click',e=>{if(e.target.id==='pinveil')closePin(null)});
+
+// ---------------------------------------------------------------- state
+let P=null,mq=null,link='idle';
+let S=null,Srx=0,online=null,LOG=[],ACT=[],busy='';
+let showAllAct=false,showAllLog=false;
+function live(){return mq&&mq.healthy()&&online==='1'&&S&&S.mega}
+function age(){return S?(S.t?Date.now()/1000-S.t:(Date.now()-Srx)/1000):1e9}
+function since(){return(Date.now()-Srx)/1000}
+
+async function command(c){
+ if(busy)return;
+ if(!live()){toast(online==='0'?'The alarm is offline.':'Not connected to the alarm yet.');return}
+ let pin=store.get('hsa.pin');
+ if(!pin){
+  pin=await askPin(c==='arm'?'PIN to arm':c==='test'?'PIN to send a test':'PIN to disarm');
+  if(!pin)return;
+  if($('remember').checked)store.set('hsa.pin',pin);
+ }
+ busy=c;render();
+ const r=await signedCommand(c,pin);
+ busy='';
+ if(r==='bad_pin'){store.del('hsa.pin');$('pins').classList.add('shake');setTimeout(()=>$('pins').classList.remove('shake'),400)}
+ toast(resultText(c,r));render();
+}
+
+// ---------------------------------------------------------------- drawing
+const R0=160,CX=160,CY=170,HALF=52*Math.PI/180;
+function arc(r){const x1=CX-r*Math.sin(HALF),y1=CY-r*Math.cos(HALF),x2=CX+r*Math.sin(HALF);return'M'+x1.toFixed(1)+' '+y1.toFixed(1)+' A'+r+' '+r+' 0 0 1 '+x2.toFixed(1)+' '+y1.toFixed(1)}
+function drawFan(cm,on,alarm){
+ const s=$('fan');const k=R0/800;
+ let h='<path d="M'+CX+' '+CY+' L'+(CX-R0*Math.sin(HALF)).toFixed(1)+' '+(CY-R0*Math.cos(HALF)).toFixed(1)+' A'+R0+' '+R0+' 0 0 1 '+(CX+R0*Math.sin(HALF)).toFixed(1)+' '+(CY-R0*Math.cos(HALF)).toFixed(1)+' Z" fill="#06164f" stroke="#1f3d9e"/>';
+ for(const d of[200,400,600]){h+='<path d="'+arc(d*k)+'" fill="none" stroke="#1f3d9e" stroke-dasharray="3 5"/>'}
+ for(const d of[2,4,6,8]){const r=d*100*k;h+='<text x="'+(CX+r*Math.sin(HALF)+6).toFixed(1)+'" y="'+(CY-r*Math.cos(HALF)+4).toFixed(1)+'" fill="#a3b6e6" font-size="11">'+d+' m</text>'}
+ if(on&&cm>0){
+  const r=Math.min(cm,790)*k,col=alarm?'#ff4a3c':'#5adcff';
+  h+='<path d="'+arc(r)+'" fill="none" stroke="'+col+'" stroke-opacity=".28" stroke-width="22" stroke-linecap="round"/>';
+  h+='<path d="'+arc(r)+'" fill="none" stroke="'+col+'" stroke-width="6" stroke-linecap="round"/>';
+ }else if(on){h+='<path d="'+arc(R0*.5)+'" fill="none" stroke="#ffbe28" stroke-opacity=".5" stroke-width="'+R0+'" />'}
+ h+='<circle cx="'+CX+'" cy="'+CY+'" r="6" fill="#fff"/><text x="'+CX+'" y="'+(CY+18)+'" fill="#a3b6e6" font-size="11" text-anchor="middle">sensor</text>';
+ s.innerHTML=h;
+}
+function drawGlyph(kind,frac){
+ const g=$('glyph');let h='';
+ const ring=(c,w,o)=>'<circle cx="42" cy="42" r="36" fill="none" stroke="'+c+'" stroke-width="'+w+'" stroke-opacity="'+(o||1)+'"/>';
+ if(kind==='count'){
+  const C=2*Math.PI*36;h=ring('#fff',6,.18)+'<circle cx="42" cy="42" r="36" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-dasharray="'+(C*frac).toFixed(1)+' '+C.toFixed(1)+'" transform="rotate(-90 42 42)"/>';
+ }else if(kind==='armed'){h=ring('#5adcff',5)+'<path d="M42 20 L60 27 V42 C60 54 52 62 42 66 C32 62 24 54 24 42 V27 Z" fill="#5adcff" fill-opacity=".18" stroke="#5adcff" stroke-width="3"/><path d="M34 42 l6 6 l11 -12" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'}
+ else if(kind==='alarm'){h=ring('#fff',5)+'<path d="M42 18 L68 64 H16 Z" fill="#fff"/><rect x="39" y="34" width="6" height="16" rx="2" fill="#a80000"/><circle cx="42" cy="56" r="3.4" fill="#a80000"/>'}
+ else if(kind==='standby'){h=ring('#ff4a3c',5)+'<circle cx="42" cy="42" r="14" fill="#ff4a3c"/>'}
+ else if(kind==='off'){h=ring('#6e788c',5)+'<path d="M28 28 L56 56 M56 28 L28 56" stroke="#6e788c" stroke-width="5" stroke-linecap="round"/>'}
+ else if(kind==='wait'){h=ring('#a3b6e6',5,.3)+'<path d="M42 6 A36 36 0 0 1 78 42" fill="none" stroke="#a3b6e6" stroke-width="5" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 42 42" to="360 42 42" dur="1.2s" repeatCount="indefinite"/></path>'}
+ else{h=ring('#3ce65a',5,.9)+'<circle cx="42" cy="42" r="10" fill="#3ce65a"/>'}
+ g.innerHTML=h;
+}
+function chip(label,cls){return'<div><span class="dot '+cls+'"></span><span>'+label+'</span></div>'}
+
+function actItem(x){
+ const s=x.e,a=x.a,b=x.b,c=x.c,d=x.d;let col='',t='',sub='';
+ switch(s){
+  case 1:col=d>=60?'bad':'warn';t=d>=60?'Power restored':'Controller restarted';sub=d>=60?'Off for about '+dur(d):d>=0?'Off for '+dur(d):'Outage length unknown';if(c)sub+=' · re-armed itself';break;
+  case 2:col='warn';t='Arming';sub=(SRC[b]||'')+' · '+a+' s exit delay';break;
+  case 3:col='ok';t='Armed';break;
+  case 4:col='ok';t='Disarmed';sub=(SRC[a]||'')+(c?' · '+c+(c==1?' visit':' visits')+' while armed':'');break;
+  case 5:col='warn';t='Motion – entry delay';sub=m(a)+' from the sensor';break;
+  case 6:col='bad';t='ALARM';sub='Someone at '+m(a)+(b>1?' · visit '+b:'')+(c?' · silent':'');break;
+  case 7:col='warn';t='They left';sub='In the room '+dur(a)+' · closest '+m(b);break;
+  case 8:col='bad';t='Standby – siren off';sub='Still watching';break;
+  case 9:col='bad';t='Sensor fault';break;
+  case 10:col='ok';t='Sensor working again';break;
+  case 11:col='warn';t='Siren time limit reached';break;
+  case 12:col='';t='Arming cancelled';sub=SRC[a]||'';break;
+  case 101:col='';t='Phone link restarted';sub=({1:'power-on',3:'software restart',4:'crash',5:'watchdog',6:'watchdog',7:'watchdog',9:'supply dipped (brown-out)',2:'reset button'})[a]||'';break;
+  case 102:col='bad';t='Lost contact with the controller';break;
+  case 103:col='ok';t='Controller back in contact';break;
+  case 104:col='warn';t='Wrong PIN from the app';sub=a+(a==1?' attempt':' attempts in a row');break;
+  case 105:col='bad';t='Remote commands locked';sub='for '+a+' s after wrong PINs';break;
+  case 106:col='';t='Wi-Fi back';sub='Was down for '+dur(a);break;
+  default:t='Event '+s;
+ }
+ return'<li><span class="dot '+col+'"></span><div><b>'+esc(t)+'</b>'+(sub?'<div class="d">'+esc(sub)+'</div>':'')+'</div><div class="w num">'+esc(when(x.t))+'</div></li>';
+}
+function logItem(e){
+ return'<li><span class="dot '+(e.fl&4?'bad':'warn')+'"></span><div><b>'+(e.fl&1?esc(when(e.start)):'Clock was not set')+'</b><div class="d">Closest '+dm(e.min)+' · last seen '+dm(e.last)+' · '+(OUT[e.out]||'')+'</div></div><div class="w num">'+dur(e.dur)+'</div></li>';
+}
+
+function render(){
+ const h=$('hero'),up=mq&&mq.healthy();
+ // ---- connection pill ----
+ let pc='',pt='';
+ if(!navigator.onLine){pc='';pt='No internet'}
+ else if(link==='auth'){pc='bad';pt='Login refused'}
+ else if(link==='denied'){pc='bad';pt='Not allowed'}
+ else if(!up){pc='warn';pt='Connecting'}
+ else if(online==='0'){pc='bad';pt='Alarm offline'}
+ else if(!S){pc='warn';pt='Waiting'}
+ else if(age()>150){pc='warn';pt='No updates '+dur(age())}
+ else{pc='ok live';pt='Live'}
+ $('pdot').className='dot '+pc;$('ptxt').textContent=pt;
+
+ // ---- hero ----
+ let cls='off',name='Connecting',sub='Reaching the alarm…',meta='',glyph='wait',frac=0;
+ if(link==='auth'){name='Login refused';sub='The broker did not accept this phone\'s login. Pair it again from the dashboard.';glyph='off'}
+ else if(S&&online==='0'){name='OFFLINE';glyph='off';sub='The alarm stopped answering'+(S.t?' around '+clockOf(S.t):'')+'. Power or internet at the shop may be down.';meta='Last known: '+(NAMES[S.state]||'?')}
+ else if(S&&!S.mega){cls='s3';name='NO CONTROLLER';glyph='alarm';sub='The phone link is up, but the alarm controller is not answering.'}
+ else if(S){
+  const st=S.state,el=since();cls='s'+st;name=NAMES[st]||'?';
+  const left=Math.max(0,S.remain-el);
+  if(st===0){glyph='ok';sub='For '+dur(S.stateSecs+el)}
+  else if(st===1){glyph='count';frac=Math.min(1,left/Math.max(1,S.remain+S.stateSecs));sub='Armed in '+Math.ceil(left)+' s'}
+  else if(st===2){glyph='armed';sub='Watching for '+dur(S.stateSecs+el)+(S.visits?' · '+S.visits+' visits':'')}
+  else if(st===3){glyph='count';frac=Math.min(1,left/Math.max(1,S.remain+S.stateSecs));sub='Siren in '+Math.ceil(left)+' s unless disarmed'}
+  else if(st===4){glyph='alarm';sub=(S.flags&8?'Someone is inside · '+mm(S.visitSecs+el):'They have left · siren still on')+' · visit '+S.visits}
+  else if(st===5){glyph='standby';sub='Siren off, still watching · '+S.visits+(S.visits==1?' visit':' visits')}
+  if(!(S.flags&1)&&st>=2)meta='Silent mode: buzzer off';
+  if(S.flags&64)meta='Sensor fault: nothing can be detected';
+ }
+ h.className='hero '+cls;$('hname').textContent=name;$('hsub').textContent=sub;$('hmeta').textContent=meta;drawGlyph(glyph,frac);
+
+ // ---- action button ----
+ const b=$('act'),st=S?S.state:-1;
+ const c=st===0?'arm':'disarm';
+ b.dataset.c=c;b.className='primary'+(c==='disarm'?' disarm':'');
+ b.innerHTML=busy?'<span class="spin"></span>'+(busy==='arm'?'Arming…':busy==='test'?'Sending…':'Disarming…'):(st===0?'Arm':st===1?'Cancel arming':'Disarm');
+ b.disabled=!!busy||!live()||st<0;
+
+ // ---- presence ----
+ const on=S&&S.mega&&online!=='0'&&(S.flags&32);
+ const stale=!S||online==='0'||!S.mega;
+ $('pres').textContent=stale?'No live data':on?(S.dist?m(S.dist)+' from the sensor':'Someone detected'):'Nobody in view';
+ $('visit').textContent=S&&(S.flags&8)?'In the room '+mm(S.visitSecs+since()):'';
+ drawFan(S?S.dist:0,on,S&&S.state>=3);
+
+ // ---- activity and log ----
+ const tidy=ACT.filter((x,i)=>!(x.e===104&&i>0&&ACT[i-1].e===104));
+ const acts=showAllAct?tidy:tidy.slice(0,6);
+ $('acts').innerHTML=tidy.length?acts.map(actItem).join(''):'<li class="empty">Nothing yet.</li>';
+ $('actmore').hidden=tidy.length<=6||showAllAct;
+ const logs=showAllLog?LOG:LOG.slice(0,5);
+ $('log').innerHTML=LOG.length?logs.map(logItem).join(''):'<li class="empty">No visits recorded.</li>';
+ $('logmore').hidden=LOG.length<=5||showAllLog;
+
+ // ---- system ----
+ if(S){
+  $('name').textContent=S.name||'Shop Alarm';document.title=S.name||'Shop Alarm';
+  $('health').innerHTML=
+   chip('Alarm link '+(online==='1'&&up?'live':'offline'),online==='1'&&up?'ok':'bad')+
+   chip('Sensor '+(S.flags&64?'FAULT':S.flags&2?'ok':'starting'),S.flags&64?'bad':S.flags&2?'ok':'warn')+
+   chip('Buzzer '+(S.flags&1?'on':'OFF'),S.flags&1?'ok':'warn')+
+   chip('Alerts '+(S.pushCfg?(S.push?'ok':'failing'):'off'),S.pushCfg?(S.push?'ok':'bad'):'')+
+   chip('Power monitor '+(S.hbCfg?(S.hb?'ok':'failing'):'off'),S.hbCfg?(S.hb?'ok':'bad'):'')+
+   chip('Wi-Fi '+S.rssi+' dBm',S.rssi>-75?'ok':'warn')+
+   chip('Clock '+(S.flags&4?t12(S.clock+Math.round(since()),false):'not set'),S.flags&4?'ok':'warn')+
+   chip('Up '+dur(S.uptime+since()),'');
+ }
+ $('test').disabled=!live()||!!busy;
+}
+
+// ---------------------------------------------------------------- messages from the alarm
+function onMessage(topic,payload){
+ const t=topic.slice(P.base.length+1);
+ try{
+  if(t==='state'){S=JSON.parse(payload);Srx=Date.now()}
+  else if(t==='online'){online=payload}
+  else if(t==='log'){LOG=JSON.parse(payload)}
+  else if(t==='activity'){
+   const prev=ACT.length?ACT[0]:null;ACT=JSON.parse(payload);
+   if(prev&&ACT.length&&(ACT[0].t!==prev.t||ACT[0].e!==prev.e)&&ACT[0].e===6)toast('ALARM: someone detected at '+m(ACT[0].a));
+  }
+  else if(t==='reply'){const r=JSON.parse(payload),f=waiting.get(r.n);if(f)f(r.res)}
+ }catch(e){}
+ render();
+}
+
+// ---------------------------------------------------------------- start
+function start(p){
+ P=p;$('pairview').hidden=true;$('app').hidden=false;
+ if(mq)mq.stop();
+ let cid=store.get('hsa.cid');if(!cid){cid='hsa-app-'+nonce().slice(0,10);store.set('hsa.cid',cid)}
+ mq=new Mqtt({url:p.url,user:p.user,pass:p.pass,clientId:cid+'-'+nonce().slice(0,4),
+  topics:['online','state','log','activity','reply'].map(x=>p.base+'/'+x),
+  onMessage,onState:s=>{link=s;render()}});
+ mq.start();
+ render();
+}
+function showPair(){$('app').hidden=true;$('pairview').hidden=false}
+
+$('act').onclick=()=>command($('act').dataset.c);
+$('test').onclick=()=>command('test');
+$('actmore').onclick=()=>{showAllAct=true;render()};
+$('logmore').onclick=()=>{showAllLog=true;render()};
+$('pastego').onclick=()=>{try{const p=parsePair($('pastecode').value);savePair(p);$('pairerr').textContent='';start(p)}catch(e){$('pairerr').textContent='That code is not complete. Copy it again from the dashboard.'}};
+$('opensettings').onclick=()=>{
+ let host='';try{host=new URL(P.url).host}catch(e){}
+ $('kv').innerHTML='<dt>Alarm</dt><dd>'+esc(S&&S.name||P.name||'')+'</dd><dt>Relay</dt><dd>'+esc(host)+'</dd><dt>Topic</dt><dd>'+esc(P.base)+'</dd><dt>Alarm firmware</dt><dd>'+esc(S&&S.fw||'–')+'</dd><dt>App</dt><dd>'+APP_VERSION+'</dd><dt>PIN saved</dt><dd>'+(store.get('hsa.pin')?'yes':'no')+'</dd>';
+ $('setveil').hidden=false;
+};
+$('closeset').onclick=()=>$('setveil').hidden=true;
+$('setveil').addEventListener('click',e=>{if(e.target.id==='setveil')$('setveil').hidden=true});
+$('forgetpin').onclick=()=>{store.del('hsa.pin');toast('PIN forgotten. You will be asked next time.');$('setveil').hidden=true};
+$('unpair').onclick=()=>{
+ if($('unpair').dataset.sure!=='1'){$('unpair').dataset.sure='1';$('unpair').textContent='Tap again to unpair';return}
+ store.del('hsa.pair');store.del('hsa.pin');if(mq)mq.stop();mq=null;P=null;S=null;
+ $('setveil').hidden=true;$('unpair').dataset.sure='';$('unpair').textContent='Unpair this phone';
+ if(location.hash)history.replaceState(null,'',location.pathname);
+ showPair();
+};
+
+// Coming back to the app: reconnect at once if the connection went stale while the phone slept.
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&mq&&!mq.healthy())mq.open();render()});
+addEventListener('online',()=>{if(mq&&!mq.healthy())mq.open();render()});
+addEventListener('offline',render);
+addEventListener('pageshow',e=>{if(e.persisted&&mq&&!mq.healthy())mq.open()});
+setInterval(()=>{if(!document.hidden)render()},1000);
+
+// "Add to Home Screen" hint for iPhone Safari
+const iOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+if(iOS&&!navigator.standalone&&!store.get('hsa.a2hs'))$('a2hs').hidden=false;
+$('a2hsx').onclick=()=>{$('a2hs').hidden=true;store.set('hsa.a2hs','1')};
+
+drawPins();
+const fromHash=pairFromHash(),saved=fromHash||loadPair();
+if(saved)start(saved);else showPair();
+}
+</script>
+</body>
+</html>
